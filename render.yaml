@@ -1,0 +1,55 @@
+# Tsukuyomi Watch — Express/tRPC API on Render, PostgreSQL on Neon.
+# Import this Blueprint from a Git repo whose root is this pecathon folder
+# (the directory that contains pnpm-workspace.yaml).
+#
+# Dashboard: Dashboard → New → Blueprint → this repo.
+# After the first deploy, set BASE_URL to https://<this-service>.onrender.com
+# Google OAuth fields can be left empty (sign-in is not required yet).
+# The startup script runs migrations and the idempotent location seed.
+#
+# NODE_ENV must be "prod" (not "production") to match apps/api env validation.
+
+services:
+  - type: web
+    name: tsukuyomi-api
+    runtime: node
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    buildCommand: corepack enable && corepack prepare pnpm@9.0.0 --activate && pnpm install --frozen-lockfile --prod=false --filter @repo/api... && pnpm --filter @repo/api build
+    startCommand: node ops/render-start.mjs
+    buildFilter:
+      paths:
+        - apps/api/**
+        - packages/**
+        - pnpm-lock.yaml
+        - pnpm-workspace.yaml
+        - package.json
+        - turbo.json
+        - render.yaml
+        - ops/**
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: prod
+      - key: LOGGER_LEVEL
+        value: error
+      - key: DATABASE_URL
+        sync: false
+      - key: BASE_URL
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        value: https://github.com/PECathon-2026/Team-PF-K96JPZ
+      - key: CRON_SECRET
+        generateValue: true
+      - key: GOOGLE_OAUTH_CLIENT_ID
+        sync: false
+      - key: GOOGLE_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_OAUTH_REDIRECT_URI
+        sync: false

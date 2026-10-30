@@ -1,0 +1,280 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { ArrowUpRight, CalendarPlus, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { trpc } from "~/trpc/client";
+import { downloadEventCalendar } from "~/lib/event-calendar";
+import { JapaneseText } from "~/components/japanese-text";
+
+export function CelestialScroll() {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [type, setType] = useState<"ALL" | "MOON_PHASE" | "LAUNCH" | "ECLIPSE" | "METEOR">("ALL");
+  const [day, setDay] = useState<number | null>(null);
+  const [lunarDisplay, setLunarDisplay] = useState(true);
+  const [lunarAnchor, setLunarAnchor] = useState(() => new Date().toISOString().slice(0, 10));
+  const query = trpc.celestial.events.useQuery(
+    {
+      month,
+      type: type === "ALL" ? undefined : type,
+      lunarAnchor: lunarDisplay ? lunarAnchor : undefined,
+    },
+    { staleTime: 300000, retry: 1 },
+  );
+  const start = new Date(
+    `${lunarDisplay && query.data?.calendar ? query.data.calendar.start : `${month}-01`}T00:00:00Z`,
+  );
+  const year = start.getUTCFullYear();
+  const totalDays =
+    lunarDisplay && query.data?.calendar
+      ? query.data.calendar.count
+      : new Date(Date.UTC(year, start.getUTCMonth() + 1, 0)).getUTCDate();
+  const currentYear = new Date().getUTCFullYear();
+  const events = query.data?.events ?? [];
+  const visible = events.filter(
+    ({ event }) =>
+      day === null ||
+      new Date(event.startUtc).toISOString().slice(0, 10) ===
+        new Date(start.getTime() + (day - 1) * 86400000).toISOString().slice(0, 10),
+  );
+  function changeMonth(offset: number) {
+    if (lunarDisplay && query.data?.calendar) {
+      const anchor = offset > 0 ? query.data.calendar.end : query.data.calendar.previous;
+      setLunarAnchor(anchor);
+      setMonth(anchor.slice(0, 7));
+      setDay(null);
+      return;
+    }
+    const next = new Date(start);
+    next.setUTCMonth(next.getUTCMonth() + offset);
+    if (Math.abs(next.getUTCFullYear() - currentYear) > 1) return;
+    setMonth(next.toISOString().slice(0, 7));
+    setDay(null);
+  }
+  return (
+    <section id="celestial-scroll" className="celestial-scroll">
+      <div className="watch-section-title">
+        <div>
+          <p className="watch-eyebrow">
+            THE CELESTIAL SCROLL ·{" "}
+            <JapaneseText meaning="Scroll of the heavens">天の巻物</JapaneseText>
+          </p>
+          <h2>Keep time with the heavens.</h2>
+        </div>
+        <span>02 / DISCOVER</span>
+      </div>
+      <div className="watch-toolbar">
+        <p>Moon phases, meteor observing windows, eclipses, and rocket launches.</p>
+        <button onClick={() => void query.refetch()} disabled={query.isFetching}>
+          <RefreshCw size={14} className={query.isFetching ? "watch-spin" : ""} />
+          Refresh
+        </button>
+      </div>
+      <div className="scroll-filters" aria-label="Event type">
+        <button
+          aria-pressed={lunarDisplay}
+          onClick={() => {
+            setLunarDisplay((value) => !value);
+            setDay(null);
+          }}
+        >
+          {lunarDisplay ? "Lunar month · Kyūreki" : "Gregorian month"}
+        </button>
+        {(
+          [
+            { value: "ALL", label: "All events" },
+            { value: "MOON_PHASE", label: "Moon phases" },
+            { value: "LAUNCH", label: "Rocket launches" },
+            { value: "METEOR", label: "Meteor showers" },
+            { value: "ECLIPSE", label: "Eclipses" },
+          ] as const
+        ).map((option) => (
+          <button
+            key={option.value}
+            aria-pressed={type === option.value}
+            onClick={() => {
+              setType(option.value);
+              setDay(null);
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <div className="scroll-layout">
+        <div className="scroll-calendar">
+          <div className="scroll-month">
+            <button
+              aria-label="Previous month"
+              disabled={query.isFetching || (year === currentYear - 1 && start.getUTCMonth() === 0)}
+              onClick={() => changeMonth(-1)}
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <h3>
+              {lunarDisplay && query.data?.calendar
+                ? `Kyūreki ${query.data.calendar.year} / ${query.data.calendar.leap ? "Leap " : ""}${query.data.calendar.month}`
+                : start.toLocaleDateString(undefined, {
+                    month: "long",
+                    year: "numeric",
+                    timeZone: "UTC",
+                  })}
+            </h3>
+            <button
+              aria-label="Next month"
+              disabled={
+                query.isFetching || (year === currentYear + 1 && start.getUTCMonth() === 11)
+              }
+              onClick={() => changeMonth(1)}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <div className="scroll-days" aria-label="Calendar, dates in UTC">
+            {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map((label) => (
+              <span className="scroll-weekday" key={label}>
+                {label}
+              </span>
+            ))}
+            {Array.from({ length: start.getUTCDay() }, (_, index) => (
+              <span key={`blank-${index}`} aria-hidden="true" />
+            ))}
+            {Array.from({ length: totalDays }, (_, index) => {
+              const date = index + 1;
+              const civil = new Date(start.getTime() + index * 86400000);
+              const civilKey = civil.toISOString().slice(0, 10);
+              const daily = events.filter(
+                ({ event }) => new Date(event.startUtc).toISOString().slice(0, 10) === civilKey,
+              );
+              const phase = daily.find((item) => item.type === "MOON_PHASE")?.event.title;
+              const symbol =
+                phase === "Full Moon"
+                  ? "●"
+                  : phase === "New Moon"
+                    ? "○"
+                    : phase === "First Quarter"
+                      ? "◐"
+                      : phase === "Last Quarter"
+                        ? "◑"
+                        : "·";
+              return (
+                <button
+                  key={date}
+                  aria-label={`${civilKey}${lunarDisplay ? `, lunar day ${date}` : ""}, ${daily.length} events${phase ? `, ${phase}` : ""}`}
+                  aria-pressed={day === date}
+                  className={daily.length ? "has-events" : ""}
+                  onClick={() => setDay((previous) => (previous === date ? null : date))}
+                >
+                  <span>{date}</span>
+                  {query.data?.lunarDays[date - 1] && (
+                    <span
+                      className="scroll-lunar-date"
+                      title={lunarDisplay ? "Gregorian month/day" : "Japanese lunisolar month/day"}
+                    >
+                      {lunarDisplay
+                        ? `${civil.getUTCMonth() + 1}/${civil.getUTCDate()}`
+                        : `${query.data.lunarDays[date - 1]!.leap ? "L " : ""}${query.data.lunarDays[date - 1]!.month}/${query.data.lunarDays[date - 1]!.lunarDay}`}
+                    </span>
+                  )}
+                  <small aria-hidden="true">{daily.length ? symbol : ""}</small>
+                </button>
+              );
+            })}
+          </div>
+          <p>
+            {lunarDisplay
+              ? "Japanese Kyūreki lunar month. Large numbers are lunar days; small numbers are Gregorian month/day. Leap months are labelled in the heading."
+              : "Gregorian month. Small dates show Japanese Kyūreki month/day; L indicates a leap month."}{" "}
+            Event filtering uses UTC civil dates.
+            <br />
+            Event times below use your local timezone.
+          </p>
+          <button className="scroll-show-month" onClick={() => setDay(null)}>
+            Show whole month
+          </button>
+        </div>
+        <div className="scroll-event-list" aria-live="polite">
+          {query.isLoading && (
+            <p className="watch-message" role="status">
+              Unrolling the celestial scroll…
+            </p>
+          )}
+          {query.error && (
+            <p className="watch-message" role="alert">
+              {query.error.message}
+            </p>
+          )}
+          {!query.isLoading && !query.error && visible.length === 0 && (
+            <p className="watch-message">
+              {query.data?.feeds.some((feed) => feed.failed)
+                ? "No events available for this selection. A source is unavailable; check its status below."
+                : "No events match this selection. Choose another date or event type."}
+            </p>
+          )}
+          {visible.map(({ event, label, type: eventType }) => (
+            <article className="scroll-event" key={event.id}>
+              <JapaneseText meaning={eventType === "MOON_PHASE" ? "Moon" : "Sky; heavens"} asChild>
+                <div className="scroll-event-symbol" tabIndex={0}>
+                  {eventType === "MOON_PHASE" ? "月" : "天"}
+                </div>
+              </JapaneseText>
+              <div className="scroll-event-content">
+                <small>
+                  {label.toUpperCase()} · {event.sourceApi.replaceAll("_", " ")}
+                </small>
+                <h3>
+                  <Link href={`/events/${event.id}`}>{event.title}</Link>
+                </h3>
+                <time dateTime={new Date(event.startUtc).toISOString()}>
+                  {new Date(event.startUtc).toLocaleString(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </time>
+                <p>{event.description}</p>
+                {event.visibilityRegion && (
+                  <p>
+                    {eventType === "LAUNCH" ? "Launch site: " : "Visibility: "}
+                    {event.visibilityRegion}
+                  </p>
+                )}
+                <div className="scroll-event-actions">
+                  <button onClick={() => downloadEventCalendar(event)}>
+                    <CalendarPlus size={14} />
+                    Add to calendar
+                  </button>
+                  <Link href={`/events/${event.id}`}>
+                    View details <ArrowUpRight size={13} />
+                  </Link>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+      <div className="scroll-feed-status">
+        {query.data?.feeds.map((feed) => (
+          <p key={feed.source}>
+            <strong>{feed.label}:</strong>{" "}
+            {feed.failed
+              ? feed.succeededAt
+                ? "Source unavailable; showing saved events."
+                : "Source unavailable; no saved feed yet."
+              : "Connected."}
+            {feed.succeededAt && ` Last synced ${new Date(feed.succeededAt).toLocaleString()}.`}
+            {feed.truncated && " Showing the first 100 results."}
+          </p>
+        ))}
+        <p>
+          Feeds refresh at most hourly; failed requests retry after 10 minutes. Imported calendar
+          events include a 30-minute reminder, subject to your calendar app’s settings. Launch
+          schedules can change. Opt in to configured background browser push below, or use calendar
+          reminders.
+        </p>
+        <p>
+          Meteor dates are approximate seasonal windows; eclipse times are calculated global maxima.
+        </p>
+      </div>
+    </section>
+  );
+}

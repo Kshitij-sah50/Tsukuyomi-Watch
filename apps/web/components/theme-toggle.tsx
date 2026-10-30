@@ -1,0 +1,34 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
+import { PalettePicker } from "~/providers/palette";
+
+export function ThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const isLight = mounted && resolvedTheme === "light";
+  const label = `Switch to ${isLight ? "dark" : "light"} mode`;
+  return (
+    <div className="watch-theme-controls">
+      <PalettePicker />
+      <button
+        type="button"
+        className="watch-theme-toggle"
+        onClick={() => setTheme(isLight ? "dark" : "light")}
+        disabled={!mounted}
+        aria-label={label}
+        title={label}
+      >
+        {isLight ? (
+          <Moon key="moon" size={16} aria-hidden="true" />
+        ) : (
+          <Sun key="sun" size={16} aria-hidden="true" />
+        )}
+        <span>{isLight ? "Dark mode" : "Light mode"}</span>
+      </button>
+    </div>
+  );
+}
